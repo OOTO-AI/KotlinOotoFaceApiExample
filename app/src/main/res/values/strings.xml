@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Ooto Face Demo</string>
+    <string name="take_photo">Take photo</string>
+    <string name="enroll">Enroll</string>
+    <string name="search">Search</string>
+    <string name="delete">Delete</string>
+    <string name="status_hint">Status output will appear here…</string>
+</resources>
