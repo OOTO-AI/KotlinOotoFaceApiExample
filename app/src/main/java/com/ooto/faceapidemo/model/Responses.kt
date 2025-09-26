@@ -11,8 +11,7 @@ data class OotoSuccess<T>(
 
 @JsonClass(generateAdapter = true)
 data class AddResult(
-    @Json(name = "templateId") val templateId: String?,
-    @Json(name = "face") val face: FaceDetails?
+    @Json(name = "enroll") val enroll: EnrollResult?,
 )
 
 @JsonClass(generateAdapter = true)
@@ -22,10 +21,19 @@ data class AddResponse(
 )
 
 @JsonClass(generateAdapter = true)
+data class EnrollResult(
+    @Json(name = "templateId") val templateId: String?,
+)
+
+@JsonClass(generateAdapter = true)
 data class IdentifyResult(
+    @Json(name = "search") val search: SearchResult?,
+)
+
+@JsonClass(generateAdapter = true)
+data class SearchResult(
     @Json(name = "templateId") val templateId: String?,
     @Json(name = "similarity") val similarity: Double?,
-    @Json(name = "face") val face: FaceDetails?
 )
 
 @JsonClass(generateAdapter = true)

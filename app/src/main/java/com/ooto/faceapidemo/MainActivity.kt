@@ -1,8 +1,15 @@
 package com.ooto.faceapidemo
 
+import android.graphics.BitmapFactory
+
 import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.net.Uri
+import androidx.exifinterface.media.ExifInterface
+import android.graphics.Matrix
+import androidx.core.content.FileProvider
+import java.io.File
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -52,17 +59,68 @@ private fun MainScreen(viewModel: MainViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
-    // Launchers
-    val takePreviewLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicturePreview()
-    ) { bmp: Bitmap? ->
-        viewModel.onPhotoCaptured(bmp)
+    // Create a temporary Uri file for the photo
+    val photoUri = remember {
+        val file = File(context.cacheDir, "captured_photo.jpg").apply {
+            createNewFile()
+            deleteOnExit()
+        }
+        FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+    }
+
+    val takePhotoLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success) {
+            // Downsample the image when decoding
+            val inputStream = context.contentResolver.openInputStream(photoUri)
+            val options = BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
+            BitmapFactory.decodeStream(inputStream, null, options)
+            inputStream?.close()
+
+            val targetWidth = 1080
+            val scale = if (options.outWidth > 0) options.outWidth / targetWidth else 1
+            val sampleSize = if (scale >= 2) scale else 1
+
+            val inputStream2 = context.contentResolver.openInputStream(photoUri)
+            val decodeOptions = BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+            }
+            val bitmap = BitmapFactory.decodeStream(inputStream2, null, decodeOptions)
+            inputStream2?.close()
+
+            val inputStreamForExif = context.contentResolver.openInputStream(photoUri)
+            val exif = inputStreamForExif?.use { ExifInterface(it) }
+            val rotationDegrees = when (exif?.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
+                ExifInterface.ORIENTATION_ROTATE_90 -> 90
+                ExifInterface.ORIENTATION_ROTATE_180 -> 180
+                ExifInterface.ORIENTATION_ROTATE_270 -> 270
+                else -> 0
+            }
+
+            val rotatedBitmap = if (rotationDegrees != 0 && bitmap != null) {
+                val matrix = Matrix().apply { postRotate(rotationDegrees.toFloat()) }
+                Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+            } else {
+                bitmap
+            }
+
+            if (rotatedBitmap != null) {
+                viewModel.onPhotoCaptured(rotatedBitmap)
+            } else {
+                viewModel.setStatus("Failed to decode image")
+            }
+        } else {
+            viewModel.setStatus("Photo capture failed")
+        }
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) takePreviewLauncher.launch(null)
+        if (granted) takePhotoLauncher.launch(photoUri)
         else viewModel.setStatus("Camera permission denied")
     }
 
@@ -70,7 +128,7 @@ private fun MainScreen(viewModel: MainViewModel) {
         val granted = ContextCompat.checkSelfPermission(
             context, Manifest.permission.CAMERA
         ) == PackageManager.PERMISSION_GRANTED
-        if (granted) takePreviewLauncher.launch(null)
+        if (granted) takePhotoLauncher.launch(photoUri)
         else permissionLauncher.launch(Manifest.permission.CAMERA)
     }
 

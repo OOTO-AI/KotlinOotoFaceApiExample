@@ -8,10 +8,10 @@ import okhttp3.RequestBody
 fun Bitmap.toJpegPart(
     partName: String = "photo",
     fileName: String = "photo.jpg",
-    quality: Int = 85
+    quality: Int = 100
 ): MultipartBody.Part {
     val baos = java.io.ByteArrayOutputStream()
-    this.compress(Bitmap.CompressFormat.JPEG, 100, baos)
+    this.compress(Bitmap.CompressFormat.JPEG, quality, baos)
     val bytes = baos.toByteArray()
     val mediaType = "image/jpeg".toMediaType()
     val body: RequestBody = RequestBody.create(mediaType, bytes)

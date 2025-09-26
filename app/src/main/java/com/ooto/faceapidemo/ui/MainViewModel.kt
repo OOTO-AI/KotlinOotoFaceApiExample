@@ -113,7 +113,7 @@ class MainViewModel : ViewModel() {
     private fun handleAddResponse(response: Response<AddResponse>) {
         if (response.isSuccessful && response.body() != null) {
             val r = response.body()!!
-            val tid = r.result.templateId
+            val tid = r.result.enroll?.templateId
             val text = buildString {
                 appendLine("Enroll OK")
                 appendLine("transactionId=${r.transactionId}")
@@ -133,8 +133,8 @@ class MainViewModel : ViewModel() {
     private fun handleIdentifyResponse(response: Response<IdentifyResponse>) {
         if (response.isSuccessful && response.body() != null) {
             val r = response.body()!!
-            val tid = r.result.templateId
-            val sim = r.result.similarity
+            val tid = r.result.search?.templateId
+            val sim = r.result.search?.similarity
             val text = buildString {
                 appendLine("Identify OK")
                 appendLine("transactionId=${r.transactionId}")
