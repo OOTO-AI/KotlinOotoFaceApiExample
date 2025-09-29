@@ -3,6 +3,9 @@ package com.ooto.faceapidemo
 import android.graphics.BitmapFactory
 
 import android.Manifest
+import android.app.Activity
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
@@ -35,7 +38,10 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.rememberLauncherForActivityResult
+import com.ooto.faceapidemo.camera.FaceCaptureActivity
 import com.ooto.faceapidemo.ui.MainViewModel
+import kotlin.math.max
+import kotlin.math.min
 
 class MainActivity : ComponentActivity() {
 
@@ -60,76 +66,90 @@ private fun MainScreen(viewModel: MainViewModel) {
     val context = LocalContext.current
 
     // Create a temporary Uri file for the photo
-    val photoUri = remember {
-        val file = File(context.cacheDir, "captured_photo.jpg").apply {
-            createNewFile()
-            deleteOnExit()
-        }
-        FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
-    }
+//    val photoUri = remember {
+//        val file = File(context.cacheDir, "captured_photo.jpg").apply {
+//            createNewFile()
+//            deleteOnExit()
+//        }
+//        FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+//    }
 
-    val takePhotoLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicture()
-    ) { success ->
-        if (success) {
-            // Downsample the image when decoding
-            val inputStream = context.contentResolver.openInputStream(photoUri)
-            val options = BitmapFactory.Options().apply {
-                inJustDecodeBounds = true
-            }
-            BitmapFactory.decodeStream(inputStream, null, options)
-            inputStream?.close()
+//    val takePhotoLauncher = rememberLauncherForActivityResult(
+//        contract = ActivityResultContracts.TakePicture()
+//    ) { success ->
+//        if (success) {
+//            // Downsample the image when decoding
+//            val inputStream = context.contentResolver.openInputStream(photoUri)
+//            val options = BitmapFactory.Options().apply {
+//                inJustDecodeBounds = true
+//            }
+//            BitmapFactory.decodeStream(inputStream, null, options)
+//            inputStream?.close()
+//
+//            val targetWidth = 1080
+//            val scale = if (options.outWidth > 0) options.outWidth / targetWidth else 1
+//            val sampleSize = if (scale >= 2) scale else 1
+//
+//            val inputStream2 = context.contentResolver.openInputStream(photoUri)
+//            val decodeOptions = BitmapFactory.Options().apply {
+//                inSampleSize = sampleSize
+//            }
+//            val bitmap = BitmapFactory.decodeStream(inputStream2, null, decodeOptions)
+//            inputStream2?.close()
+//
+//            val inputStreamForExif = context.contentResolver.openInputStream(photoUri)
+//            val exif = inputStreamForExif?.use { ExifInterface(it) }
+//            val rotationDegrees = when (exif?.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
+//                ExifInterface.ORIENTATION_ROTATE_90 -> 90
+//                ExifInterface.ORIENTATION_ROTATE_180 -> 180
+//                ExifInterface.ORIENTATION_ROTATE_270 -> 270
+//                else -> 0
+//            }
+//
+//            val rotatedBitmap = if (rotationDegrees != 0 && bitmap != null) {
+//                val matrix = Matrix().apply { postRotate(rotationDegrees.toFloat()) }
+//                Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+//            } else {
+//                bitmap
+//            }
+//
+//            if (rotatedBitmap != null) {
+//                viewModel.onPhotoCaptured(rotatedBitmap)
+//            } else {
+//                viewModel.setStatus("Failed to decode image")
+//            }
+//        } else {
+//            viewModel.setStatus("Photo capture failed")
+//        }
+//    }
+//
+//    val permissionLauncher = rememberLauncherForActivityResult(
+//        contract = ActivityResultContracts.RequestPermission()
+//    ) { granted ->
+//        if (granted) takePhotoLauncher.launch(photoUri)
+//        else viewModel.setStatus("Camera permission denied")
+//    }
+//
+//    fun ensureCameraThenCapture() {
+//        val granted = ContextCompat.checkSelfPermission(
+//            context, Manifest.permission.CAMERA
+//        ) == PackageManager.PERMISSION_GRANTED
+//        if (granted) takePhotoLauncher.launch(photoUri)
+//        else permissionLauncher.launch(Manifest.permission.CAMERA)
+//    }
 
-            val targetWidth = 1080
-            val scale = if (options.outWidth > 0) options.outWidth / targetWidth else 1
-            val sampleSize = if (scale >= 2) scale else 1
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+        if (res.resultCode == Activity.RESULT_OK) {
+            val photoUri = res.data?.data // это Uri файла в cache
+            // Покажите превью (декодируйте с inSampleSize) или отправьте на сервер
 
-            val inputStream2 = context.contentResolver.openInputStream(photoUri)
-            val decodeOptions = BitmapFactory.Options().apply {
-                inSampleSize = sampleSize
-            }
-            val bitmap = BitmapFactory.decodeStream(inputStream2, null, decodeOptions)
-            inputStream2?.close()
-
-            val inputStreamForExif = context.contentResolver.openInputStream(photoUri)
-            val exif = inputStreamForExif?.use { ExifInterface(it) }
-            val rotationDegrees = when (exif?.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
-                ExifInterface.ORIENTATION_ROTATE_90 -> 90
-                ExifInterface.ORIENTATION_ROTATE_180 -> 180
-                ExifInterface.ORIENTATION_ROTATE_270 -> 270
-                else -> 0
-            }
-
-            val rotatedBitmap = if (rotationDegrees != 0 && bitmap != null) {
-                val matrix = Matrix().apply { postRotate(rotationDegrees.toFloat()) }
-                Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-            } else {
-                bitmap
-            }
-
-            if (rotatedBitmap != null) {
+            if (photoUri != null) {
+                val rotatedBitmap = decodeScaledOriented(photoUri, context)
                 viewModel.onPhotoCaptured(rotatedBitmap)
             } else {
                 viewModel.setStatus("Failed to decode image")
             }
-        } else {
-            viewModel.setStatus("Photo capture failed")
         }
-    }
-
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) takePhotoLauncher.launch(photoUri)
-        else viewModel.setStatus("Camera permission denied")
-    }
-
-    fun ensureCameraThenCapture() {
-        val granted = ContextCompat.checkSelfPermission(
-            context, Manifest.permission.CAMERA
-        ) == PackageManager.PERMISSION_GRANTED
-        if (granted) takePhotoLauncher.launch(photoUri)
-        else permissionLauncher.launch(Manifest.permission.CAMERA)
     }
 
     Column(
@@ -187,7 +207,9 @@ private fun MainScreen(viewModel: MainViewModel) {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Button(
-                onClick = { ensureCameraThenCapture() },
+                onClick = {
+                    launcher.launch(Intent(context, FaceCaptureActivity::class.java))
+                },
                 enabled = !state.loading,
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Take photo") }
@@ -219,4 +241,33 @@ private fun MainScreen(viewModel: MainViewModel) {
             ) { Text("Delete") }
         }
     }
+}
+
+fun decodeScaledOriented(uri: Uri, ctx: Context, maxSide: Int = 1920): Bitmap {
+    val fd = ctx.contentResolver.openFileDescriptor(uri, "r")!!.fileDescriptor
+
+    // 1) узнать размеры
+    val opts1 = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFileDescriptor(fd, null, opts1)
+    val w = opts1.outWidth; val h = opts1.outHeight
+    val scale = max(1, min(w, h) / maxSide)
+
+    // 2) декодировать с sampleSize
+    val opts2 = BitmapFactory.Options().apply { inSampleSize = scale }
+    var bmp = BitmapFactory.decodeFileDescriptor(fd, null, opts2)!!
+
+    // 3) повернуть по EXIF
+    val input = ctx.contentResolver.openInputStream(uri)!!
+    val exif = androidx.exifinterface.media.ExifInterface(input)
+    val deg = when (exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
+        ExifInterface.ORIENTATION_ROTATE_90 -> 90
+        ExifInterface.ORIENTATION_ROTATE_180 -> 180
+        ExifInterface.ORIENTATION_ROTATE_270 -> 270
+        else -> 0
+    }
+    if (deg != 0) {
+        val m = Matrix().apply { postRotate(deg.toFloat()) }
+        bmp = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
+    }
+    return bmp
 }
