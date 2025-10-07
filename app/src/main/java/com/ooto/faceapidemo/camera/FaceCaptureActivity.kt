@@ -1,5 +1,7 @@
 package com.ooto.faceapidemo.camera
 
+import kotlinx.coroutines.delay
+import java.io.File
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
@@ -40,13 +42,10 @@ import androidx.camera.core.ViewPort
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.*
 import com.ooto.faceapidemo.BuildConfig
-import kotlinx.coroutines.*
-import java.io.File
 import java.text.SimpleDateFormat
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.Locale
-import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
@@ -67,21 +66,48 @@ class FaceCaptureActivity : ComponentActivity() {
         }
     }
 
+    private val EXTRA_RESULT_REASON = "result_reason"
+    private val RESULT_REASON_TIMEOUT = "timeout"
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         cameraPermission.launch(Manifest.permission.CAMERA)
     }
 
+    private fun cleanupOldCacheImages(context: android.content.Context, olderThanMs: Long = 24 * 60 * 60 * 1000L) {
+        val dir = File(context.cacheDir, "images")
+        val now = System.currentTimeMillis()
+        if (!dir.exists()) return
+        dir.listFiles()?.forEach { f ->
+            if (f.isFile && (f.name.endsWith(".jpg", ignoreCase = true) || f.name.endsWith(".jpeg", ignoreCase = true))) {
+                val age = now - f.lastModified()
+                if (age > olderThanMs) {
+                    runCatching { f.delete() }
+                }
+            }
+        }
+    }
+
     private fun startUI() {
+        // Очистим старые кэши изображений (старше суток) — п.18
+        cleanupOldCacheImages(this, olderThanMs = 24 * 60 * 60 * 1000L)
         setContent {
             MaterialTheme {
                 FaceCameraScreen(
                     onResult = { uri ->
-                        setResult(Activity.RESULT_OK, Intent().setData(uri))
+                        val intent = Intent()
+                            .setDataAndType(uri, "image/jpeg")
+                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        setResult(Activity.RESULT_OK, intent)
                         finish()
                     },
                     onCancel = {
                         setResult(Activity.RESULT_CANCELED)
+                        finish()
+                    },
+                    onTimeout = {
+                        val intent = Intent().putExtra(EXTRA_RESULT_REASON, RESULT_REASON_TIMEOUT)
+                        setResult(Activity.RESULT_CANCELED, intent)
                         finish()
                     }
                 )
@@ -93,20 +119,19 @@ class FaceCaptureActivity : ComponentActivity() {
 @Composable
 private fun FaceCameraScreen(
     onResult: (Uri) -> Unit,
-    onCancel: () -> Unit
+    onCancel: () -> Unit,
+    onTimeout: () -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = context as LifecycleOwner
 
     var previewView: PreviewView? by remember { mutableStateOf(null) }
-    var lensFacing by remember { mutableStateOf(CameraSelector.LENS_FACING_FRONT) }
+    var lensFacing by remember { mutableStateOf(CameraSelector.LENS_FACING_BACK) }
 
     var pvSize by remember { mutableStateOf(IntSize.Zero) }
 
     // Подсказки пользователю (обновляются из анализатора через main executor)
     var hintLines by remember { mutableStateOf<List<String>>(listOf("Поместите лицо в кадр")) }
-
-
 
     // Пороговые условия: углы головы + стабильность (без центрирования)
     val thresholds = remember {
@@ -139,6 +164,13 @@ private fun FaceCameraScreen(
     }
     // Флаг, чтобы не запускать новый инференс, пока предыдущий не завершился (п.8)
     val inFlight = remember { AtomicBoolean(false) }
+
+    // Таймаут флоу: 15 секунд безуспешной фиксации — отменяем с причиной (п.16)
+    LaunchedEffect(Unit) {
+        val timeoutMs = 15_000L
+        delay(timeoutMs)
+        onTimeout()
+    }
 
     // Храним use cases, чтобы отвязать при переворотах и т.д.
     var analysis by remember { mutableStateOf<ImageAnalysis?>(null) }
@@ -521,7 +553,7 @@ private fun imageProxyToUprightBitmap(imageProxy: ImageProxy): Bitmap {
     val nv21 = yuv420888ToNv21(imageProxy)
     val yuvImage = YuvImage(nv21, ImageFormat.NV21, imageProxy.width, imageProxy.height, null)
     val out = ByteArrayOutputStream()
-    yuvImage.compressToJpeg(Rect(0, 0, imageProxy.width, imageProxy.height), 95, out)
+    yuvImage.compressToJpeg(Rect(0, 0, imageProxy.width, imageProxy.height), 100, out)
     val bytes = out.toByteArray()
     var bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
         ?: throw IllegalArgumentException("Failed to decode NV21 frame")
@@ -559,7 +591,7 @@ private fun saveCenterCropFromProxy(
         "face_crop_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(System.currentTimeMillis())}.jpg"
     )
     file.outputStream().use { fos ->
-        cropped.compress(Bitmap.CompressFormat.JPEG, 95, fos)
+        cropped.compress(Bitmap.CompressFormat.JPEG, 100, fos)
         fos.flush()
     }
 
@@ -586,7 +618,7 @@ private fun saveFaceCropFromProxy(
         "face_bbox_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(System.currentTimeMillis())}.jpg"
     )
     file.outputStream().use { fos ->
-        cropped.compress(Bitmap.CompressFormat.JPEG, 95, fos)
+        cropped.compress(Bitmap.CompressFormat.JPEG, 100, fos)
         fos.flush()
     }
     bmp.recycle()
@@ -734,7 +766,7 @@ private fun saveFaceCropIfSharp(
         "face_bbox_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(System.currentTimeMillis())}.jpg"
     )
     file.outputStream().use { fos ->
-        roi.compress(Bitmap.CompressFormat.JPEG, 95, fos)
+        roi.compress(Bitmap.CompressFormat.JPEG, 100, fos)
         fos.flush()
     }
 
@@ -841,7 +873,7 @@ private fun saveFaceCropFromYuvIfSharp(
     val nv21 = yuv420888ToNv21(imageProxy)
     val yuv = YuvImage(nv21, ImageFormat.NV21, imageWidth, imageHeight, null)
     val jpegRoiStream = ByteArrayOutputStream()
-    yuv.compressToJpeg(roiRaw, 95, jpegRoiStream)
+    yuv.compressToJpeg(roiRaw, 100, jpegRoiStream)
     val jpegBytes = jpegRoiStream.toByteArray()
 
     // 4) Оценка резкости на ROI (по JPEG ROI, это небольшой Bitmap)
@@ -881,7 +913,7 @@ private fun saveFaceCropFromYuvIfSharp(
         "face_bbox_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(System.currentTimeMillis())}.jpg"
     )
     file.outputStream().use { fos ->
-        finalBitmap.compress(Bitmap.CompressFormat.JPEG, 95, fos)
+        finalBitmap.compress(Bitmap.CompressFormat.JPEG, 100, fos)
         fos.flush()
     }
     finalBitmap.recycle()
